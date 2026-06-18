@@ -42,11 +42,7 @@ FloorSet authors, or the ICCAD CAD Contest organizers.
 - [Prerequisites](#prerequisites)
 - [Quick Start](#quick-start)
 - [Usage](#usage)
-- [Building Your Binary Inside the Container](#building-your-binary-inside-the-container)
-- [End-to-End Demo](#end-to-end-demo)
-- [Rebuilding the Image](#rebuilding-the-image)
-- [Continuous Integration](#continuous-integration)
-- [Submission Notes](#submission-notes)
+- [Building Binary Inside the Container](#building-binary-inside-the-container)
 - [References](#references)
 - [License](#license)
 
@@ -207,30 +203,6 @@ docker run --rm -v "$PWD:/work" -w /work \
 ```
 
 Then evaluate it using the [Usage](#usage) commands above.
-
----
-
-## End-to-End Demo
-
-The `examples/` directory contains a tiny demo solver that implements the exact
-stdin/stdout JSON contract `op_wrapper.py` expects (reads the problem payload,
-writes `{"positions": [[x, y, w, h], ...]}`). It is a trivial shelf-packing
-baseline meant only to verify the *binary → wrapper → judge* pipeline is wired
-correctly — **it is not constraint-correct and will not score well**.
-
-```bash
-# Build the demo into a binary and drop it into ./submission
-docker run --rm -v "$PWD:/work" -w /work \
-  ghcr.io/conashin/cadcontest26c_docker:cpu \
-  bash examples/build_example.sh
-
-# Run it through the evaluator
-docker run --rm -v "$PWD/submission:/submission:ro" \
-  ghcr.io/conashin/cadcontest26c_docker:cpu --test-id 0
-```
-
-Replace `examples/my_optimizer_src/optimizer_main.py` with your real solver,
-keeping the same JSON schema.
 
 ---
 
