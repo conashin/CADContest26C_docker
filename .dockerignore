@@ -1,0 +1,15 @@
+# Build context only needs op_wrapper.py, requirements.txt and scripts/.
+# Keep everything else out so context stays tiny and submissions never leak in.
+.git
+.github
+submission
+examples
+out
+*.md
+*.pdf
+*.tar.gz
+*.tgz
+__pycache__
+*.pyc
+build
+dist

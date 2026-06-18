@@ -1,0 +1,17 @@
+# Submission artifacts (keep the folder, ignore the binaries dropped in it)
+submission/*
+!submission/README.md
+
+# PyInstaller / build output
+build/
+dist/
+*.spec
+__pycache__/
+*.pyc
+
+# Local datasets / outputs
+LiteTensorData*/
+*.tar.gz
+*.tgz
+out/
+*_solutions.json
