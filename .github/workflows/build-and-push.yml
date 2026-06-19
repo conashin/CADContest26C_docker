@@ -45,11 +45,24 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # Executable-submission images (evaluated via op_wrapper.py).
           - variant: cpu
             torch_index: https://download.pytorch.org/whl/cpu
+            eval_mode: binary
             is_default: true
           - variant: gpu
             torch_index: https://download.pytorch.org/whl/cu124
+            eval_mode: binary
+            is_default: false
+          # Source-code "fallback" images (evaluate the participant's source
+          # module directly, mirroring the guidelines' fallback submission path).
+          - variant: fallback-cpu
+            torch_index: https://download.pytorch.org/whl/cpu
+            eval_mode: fallback
+            is_default: false
+          - variant: fallback-gpu
+            torch_index: https://download.pytorch.org/whl/cu124
+            eval_mode: fallback
             is_default: false
     steps:
       - name: Checkout
@@ -98,6 +111,7 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
             TORCH_INDEX_URL=${{ matrix.torch_index }}
+            EVAL_MODE=${{ matrix.eval_mode }}
             FLOORSET_REF=${{ github.event.inputs.floorset_ref || 'main' }}
             BAKE_DATASET=${{ github.event.inputs.bake_dataset || '1' }}
           cache-from: type=gha,scope=${{ matrix.variant }}

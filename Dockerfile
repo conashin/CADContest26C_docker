@@ -93,6 +93,16 @@ RUN if [ "$BAKE_DATASET" = "1" ]; then \
         || echo '[warn] dataset prefetch skipped (no internet at build) - will auto-download at runtime'; \
     fi
 
+# --- Evaluation mode ----------------------------------------------------------
+# Selects how the entrypoint evaluates a submission (see scripts/entrypoint.sh):
+#   binary   -> executable submission, evaluated via op_wrapper.py (default)
+#   fallback -> source-code submission, evaluated directly with the participant's
+#               Python module (the guidelines' "you may also submit your source
+#               code" fallback path). Used by the :fallback-cpu / :fallback-gpu
+#               image tags.
+ARG EVAL_MODE=binary
+ENV EVAL_MODE=${EVAL_MODE}
+
 COPY scripts/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 
