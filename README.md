@@ -91,19 +91,50 @@ Source: the official *[Problem C Submission Guidelines](https://drive.google.com
 
 ## Image Variants
 
-Two variants are published. They differ only in the PyTorch wheel.
+Four variants are published. They share the same Debian 13 / Python 3.13 / GLIBC
+2.41 base and differ in the PyTorch wheel and the **evaluation mode**:
 
-| Tag                  | PyTorch wheel | Intended use                                                 | Size    |
-| -------------------- | ------------- | ------------------------------------------------------------ | ------- |
-| `:cpu` (= `:latest`) | `whl/cpu`     | Any machine, no NVIDIA driver required. Verifies packaging, output validity, and full scoring. | ~1.5 GB |
-| `:gpu`               | `whl/cu124`   | Machines with an NVIDIA GPU; aligns with the A100/CUDA judge and measures GPU runtime. Requires `--gpus all`. | ~6–7 GB |
+- **binary** mode (`:cpu`, `:gpu`) evaluates an *executable* submission through
+  `op_wrapper.py` — the official judging path for a PyInstaller binary.
+- **fallback** mode (`:fallback-cpu`, `:fallback-gpu`) evaluates a *source-code*
+  submission directly, mirroring the guidelines' fallback path ("As a fallback,
+  you may also submit your source code.").
+
+| Tag                  | PyTorch wheel | Eval mode | Intended use                                                 | Size    |
+| -------------------- | ------------- | --------- | ------------------------------------------------------------ | ------- |
+| `:cpu` (= `:latest`) | `whl/cpu`     | binary    | Any machine, no NVIDIA driver required. Verifies executable packaging, output validity, and full scoring. | ~1.5 GB |
+| `:gpu`               | `whl/cu124`   | binary    | Machines with an NVIDIA GPU; aligns with the A100/CUDA judge and measures GPU runtime. Requires `--gpus all`. | ~6–7 GB |
+| `:fallback-cpu`      | `whl/cpu`     | fallback  | Verifies a **source-code** submission evaluates correctly (no binary). Installs the submission's `requirements.txt`. | ~1.5 GB |
+| `:fallback-gpu`      | `whl/cu124`   | fallback  | Source-code submission on an NVIDIA GPU. Requires `--gpus all`. | ~6–7 GB |
 
 Published image names:
 
 ```
-ghcr.io/conashin/cadcontest26c_docker:cpu      # also tagged :latest
-ghcr.io/conashin/cadcontest26c_docker:gpu      # CUDA build; run with --gpus all
+ghcr.io/conashin/cadcontest26c_docker:cpu            # also tagged :latest
+ghcr.io/conashin/cadcontest26c_docker:gpu            # CUDA build; run with --gpus all
+ghcr.io/conashin/cadcontest26c_docker:fallback-cpu   # source-code path
+ghcr.io/conashin/cadcontest26c_docker:fallback-gpu   # source-code path; run with --gpus all
 ```
+
+### Testing the source-code (fallback) path
+
+Put your source module — a `.py` exposing a `FloorplanOptimizer` subclass with a
+`solve()` method (e.g. derived from the contest's `optimizer_template.py`) —
+plus any `requirements.txt`/helper files into `submission/`, then run a
+`fallback-*` image. The entrypoint installs the submission's `requirements.txt`
+(if present) and runs `python iccad2026_evaluate.py --evaluate <your_module>.py`
+directly.
+
+```bash
+# Demo source-code submission (works out of the box)
+cp examples/fallback_src/my_optimizer.py submission/
+
+docker run --rm -v "$PWD/submission:/submission:ro" \
+  ghcr.io/conashin/cadcontest26c_docker:fallback-cpu
+```
+
+The entrypoint probes `my_optimizer.py`, then `optimizer.py`, then
+`optimizer_main.py`; override with `-e MY_OPT_MODULE=<relative-path>.py`.
 
 ---
 
