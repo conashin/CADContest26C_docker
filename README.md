@@ -5,11 +5,12 @@
 
 A reproducible Docker environment that mirrors the **official judging machine** of
 the [ICCAD 2026 CAD Contest](https://www.iccad-contest.org/) — **Problem C: The
-FloorSet Challenge** — together with a GitHub Actions pipeline that builds the
-image and publishes it to the **GitHub Container Registry (GHCR)**.
+FloorSet Challenge** — aligned with the **Beta Submission Guidelines**, together
+with a GitHub Actions pipeline that builds the image and publishes it to the
+**GitHub Container Registry (GHCR)**.
 
 It lets you `docker pull` the image to any machine and exercise your submission
-binary with the exact judging command before you submit:
+with the exact judging command before you submit:
 
 ```bash
 python iccad2026_evaluate.py --evaluate op_wrapper.py
@@ -38,11 +39,15 @@ FloorSet authors, or the ICCAD CAD Contest organizers.
 
 - [Overview](#overview)
 - [Environment Specification](#environment-specification)
+- [Submission Package (Beta Guidelines)](#submission-package-beta-guidelines)
+- [requirements.txt — Case A / Case B](#requirementstxt--case-a--case-b)
 - [Image Variants](#image-variants)
 - [Prerequisites](#prerequisites)
 - [Quick Start](#quick-start)
 - [Usage](#usage)
-- [Building Binary Inside the Container](#building-binary-inside-the-container)
+- [Packaging & Validating Your Submission](#packaging--validating-your-submission)
+- [Pre-submission Checklist](#pre-submission-checklist)
+- [Advanced: Wrapping a Compiled Binary](#advanced-wrapping-a-compiled-binary)
 - [References](#references)
 - [License](#license)
 
@@ -50,21 +55,24 @@ FloorSet authors, or the ICCAD CAD Contest organizers.
 
 ## Overview
 
-The official judge wraps each participant's executable (`my_optimizer`) with a
-small Python script (`op_wrapper.py`) and invokes it through the contest's
-evaluation harness. Whether your PyInstaller binary loads correctly on the judge
-is determined primarily by the **GLIBC version, Python version, and compiler
-toolchain** of the build machine. This image matches those exactly, so a binary
-you build and test here is expected to behave the same way on the official
-environment.
+The official judge runs your `cadc<team_id>/` package directly through the
+contest's evaluation harness:
 
-The image bundles:
+```
+python iccad2026_evaluate.py --evaluate op_wrapper.py
+```
+
+`op_wrapper.py` must be a plain Python file that subclasses `FloorplanOptimizer`
+and implements `solve()` — no compiled binary or subprocess protocol is
+required. This image bundles:
 
 - The official [`IntelLabs/FloorSet`](https://github.com/IntelLabs/FloorSet)
   `iccad2026contest/` evaluation harness (tracks `main` by default).
-- The executable wrapper `op_wrapper.py`, placed next to the harness.
-- **PyInstaller**, so you can package your binary *inside* the container and
-  guarantee GLIBC/Python compatibility with the judge. **(for reference only)**
+- Reference `op_wrapper.py` / `op_src.py` templates, placed next to the harness
+  so the image runs end-to-end out of the box.
+- An entrypoint that validates your package structure, handles
+  `requirements.txt` Case A/B, and reproduces the guidelines' `op_wrapper.py`
+  → `op_src.py` fallback behavior locally.
 - The 100-case validation dataset (`LiteTensorDataTest`), pre-baked when network
   access is available at build time so evaluation can run offline.
 
@@ -72,7 +80,11 @@ The image bundles:
 
 ## Environment Specification
 
-Source: the official *[Problem C Submission Guidelines](https://drive.google.com/file/d/1OiKhswOKrlLNStzUHt1IDN6Ej2kXXJNW/view)*
+Source: the *ICCAD 2026 FloorSet Challenge — Beta Submission Guidelines*.
+
+Each Beta submission is evaluated individually on a **dedicated machine with 48
+CPU cores and an NVIDIA A100 80GB GPU**, with all resources available
+exclusively to that submission.
 
 | Item        | Official judge                                         | This image                                        |
 | ----------- | ------------------------------------------------------ | ------------------------------------------------- |
@@ -80,61 +92,93 @@ Source: the official *[Problem C Submission Guidelines](https://drive.google.com
 | Python      | 3.13.x                                                 | Debian 13 system Python 3.13 ✅                    |
 | GCC / G++   | 14.2.0                                                 | `build-essential` (GCC/G++ 14) ✅                  |
 | GLIBC (ldd) | 2.41                                                   | Debian 13 → 2.41 ✅                                |
-| PyTorch     | 2.12.0+cu130 (A100/CUDA)                               | CPU **or** CUDA variant (see below)               |
-| Python deps | torch / numpy / shapely / matplotlib / tqdm / requests | Installed from the contest's `requirements.txt` ✅ |
+| CPU / GPU   | 48 cores, NVIDIA A100 80GB (dedicated)                 | Your machine's cores; `:gpu` variant + any CUDA GPU |
+| Preinstalled Python deps (Case A) | numpy, torch, scipy, numba, tqdm, shapely, threadpoolctl, + contest `requirements.txt` | Installed from this repo's `requirements.txt` ✅ |
 
-> The official machine uses an NVIDIA A100 with CUDA. The GLIBC / Python /
-> toolchain layers — the ones that actually decide whether your binary loads —
-> are matched exactly in both image variants.
+> The official machine uses an NVIDIA A100 with CUDA and 48 dedicated CPU
+> cores. Absolute runtime numbers will differ from your local machine; use
+> this image to validate **correctness and packaging**, not to benchmark
+> final runtime/score.
+
+---
+
+## Submission Package (Beta Guidelines)
+
+Each team submits exactly one `cadc<team_id>.tar.gz`, which must unpack to a
+**flat** directory named `cadc<team_id>/`:
+
+```
+cadc<team_id>/
+    op_wrapper.py          REQUIRED. Subclasses FloorplanOptimizer; the file
+                            passed to --evaluate.
+    op_src.py               Optional but strongly recommended. Full,
+                            self-contained source used if op_wrapper.py fails
+                            or cannot run standalone.
+    requirements.txt        REQUIRED (may be empty). See below.
+    README.md                Optional. Only if you need special instructions.
+    <any other files>        Allowed (model weights, data, helper modules).
+                            Reference them with paths relative to
+                            cadc<team_id>/ — never absolute paths.
+```
+
+**No nesting:** `op_wrapper.py`, `op_src.py`, and `requirements.txt` must sit
+**directly inside** `cadc<team_id>/`, not in a subdirectory — the evaluator
+will not find them otherwise.
+
+**Keep the package clean:** no unrelated files (personal scripts, test
+outputs, result JSONs, checkpoints from other approaches, notebooks, logs);
+exactly one `op_wrapper.py` and at most one `op_src.py`; remove unused large
+binaries. Violations of naming or cleanliness can lead to disqualification.
+
+The evaluator tries `op_wrapper.py` first; if that run fails, it falls back to
+`op_src.py`. This image's entrypoint reproduces that behavior locally (see
+[scripts/entrypoint.sh](scripts/entrypoint.sh)).
+
+---
+
+## requirements.txt — Case A / Case B
+
+- **Case A — no custom dependencies:** leave `requirements.txt` **empty**
+  (zero bytes). The evaluation environment already provides `numpy`, `torch`,
+  `scipy`, `numba`, `tqdm`, `shapely`, `threadpoolctl`, and everything in the
+  contest's own `requirements.txt`.
+- **Case B — custom dependencies:** provide a **complete** `requirements.txt`
+  listing every package your optimizer needs, including transitive
+  dependencies. The evaluation environment creates a fresh virtual
+  environment using **only** this file:
+
+  ```bash
+  python3 -m venv .venv_eval
+  .venv_eval/bin/pip install -r requirements.txt
+  ```
+
+  A partial `requirements.txt` (only the packages you added, omitting
+  standard ones) was the most common cause of Alpha failures — the fresh venv
+  does **not** inherit numpy/torch/etc. from the base environment once you go
+  down the Case B path.
+
+This image's entrypoint performs exactly this Case A/B branching against your
+mounted submission, so a partial `requirements.txt` fails locally the same
+way it would on the judge.
 
 ---
 
 ## Image Variants
 
-Four variants are published. They share the same Debian 13 / Python 3.13 / GLIBC
-2.41 base and differ in the PyTorch wheel and the **evaluation mode**:
+Two variants are published, sharing the same Debian 13 / Python 3.13 / GLIBC
+2.41 base and differing only in the PyTorch wheel:
 
-- **binary** mode (`:cpu`, `:gpu`) evaluates an *executable* submission through
-  `op_wrapper.py` — the official judging path for a PyInstaller binary.
-- **fallback** mode (`:fallback-cpu`, `:fallback-gpu`) evaluates a *source-code*
-  submission directly, mirroring the guidelines' fallback path ("As a fallback,
-  you may also submit your source code.").
-
-| Tag                  | PyTorch wheel | Eval mode | Intended use                                                 | Size    |
-| -------------------- | ------------- | --------- | ------------------------------------------------------------ | ------- |
-| `:cpu` (= `:latest`) | `whl/cpu`     | binary    | Any machine, no NVIDIA driver required. Verifies executable packaging, output validity, and full scoring. | ~1.5 GB |
-| `:gpu`               | `whl/cu124`   | binary    | Machines with an NVIDIA GPU; aligns with the A100/CUDA judge and measures GPU runtime. Requires `--gpus all`. | ~6–7 GB |
-| `:fallback-cpu`      | `whl/cpu`     | fallback  | Verifies a **source-code** submission evaluates correctly (no binary). Installs the submission's `requirements.txt`. | ~1.5 GB |
-| `:fallback-gpu`      | `whl/cu124`   | fallback  | Source-code submission on an NVIDIA GPU. Requires `--gpus all`. | ~6–7 GB |
+| Tag                  | PyTorch wheel | Intended use                                                 | Size    |
+| -------------------- | ------------- | ------------------------------------------------------------ | ------- |
+| `:cpu` (= `:latest`) | `whl/cpu`     | Any machine, no NVIDIA driver required. Verifies packaging, output validity, and full scoring. | ~1.5 GB |
+| `:gpu`               | `whl/cu124`   | Machines with an NVIDIA GPU; aligns with the A100/CUDA judge and measures GPU runtime. Requires `--gpus all`. | ~6–7 GB |
 
 Published image names:
 
 ```
-ghcr.io/conashin/cadcontest26c_docker:cpu            # also tagged :latest
-ghcr.io/conashin/cadcontest26c_docker:gpu            # CUDA build; run with --gpus all
-ghcr.io/conashin/cadcontest26c_docker:fallback-cpu   # source-code path
-ghcr.io/conashin/cadcontest26c_docker:fallback-gpu   # source-code path; run with --gpus all
+ghcr.io/conashin/cadcontest26c_docker:cpu   # also tagged :latest
+ghcr.io/conashin/cadcontest26c_docker:gpu   # CUDA build; run with --gpus all
 ```
-
-### Testing the source-code (fallback) path
-
-Put your source module — a `.py` exposing a `FloorplanOptimizer` subclass with a
-`solve()` method (e.g. derived from the contest's `optimizer_template.py`) —
-plus any `requirements.txt`/helper files into `submission/`, then run a
-`fallback-*` image. The entrypoint installs the submission's `requirements.txt`
-(if present) and runs `python iccad2026_evaluate.py --evaluate <your_module>.py`
-directly.
-
-```bash
-# Demo source-code submission (works out of the box)
-cp examples/fallback_src/my_optimizer.py submission/
-
-docker run --rm -v "$PWD/submission:/submission:ro" \
-  ghcr.io/conashin/cadcontest26c_docker:fallback-cpu
-```
-
-The entrypoint probes `my_optimizer.py`, then `optimizer.py`, then
-`optimizer_main.py`; override with `-e MY_OPT_MODULE=<relative-path>.py`.
 
 ---
 
@@ -161,7 +205,8 @@ The entrypoint probes `my_optimizer.py`, then `optimizer.py`, then
 # 1. Pull the CPU image (public — no login required)
 docker pull ghcr.io/conashin/cadcontest26c_docker:cpu
 
-# 2. Put your built artifacts in ./submission, then run the official evaluation
+# 2. Put your op_wrapper.py (+ requirements.txt, optional op_src.py) in
+#    ./submission, then run the official evaluation
 docker run --rm -v "$PWD/submission:/submission:ro" \
   ghcr.io/conashin/cadcontest26c_docker:cpu
 ```
@@ -170,18 +215,22 @@ docker run --rm -v "$PWD/submission:/submission:ro" \
 
 ## Usage
 
-Place your submission artifacts in a local `submission/` directory:
+Place your submission files in a local `submission/` directory, matching the
+[Submission Package](#submission-package-beta-guidelines) layout:
 
 ```
 submission/
-  my_optimizer            # your PyInstaller executable
-  _includes/              # your dependency / data folder, if any
+  op_wrapper.py        # REQUIRED — subclasses FloorplanOptimizer
+  op_src.py             # optional fallback
+  requirements.txt      # REQUIRED (may be empty)
 ```
 
-The container stages everything mounted at `/submission` next to `op_wrapper.py`
-before running. `op_wrapper.py` probes these paths in order:
-`./my_optimizer`, `./dist/my_optimizer/my_optimizer`, `./bin/my_optimizer`.
-Override with `-e MY_OPT_BIN=<relative-or-absolute-path>`.
+(You may instead mount `submission/cadc<team_id>/...` — the entrypoint
+auto-detects the exact archive layout.)
+
+The container stages everything mounted at `/submission` next to the
+evaluation harness, validates the required files are present at the top
+level, resolves `requirements.txt` Case A/B, then evaluates.
 
 **Full evaluation (100 validation cases):**
 
@@ -221,10 +270,58 @@ docker run --rm -it -v "$PWD/submission:/submission:ro" \
 
 ---
 
-## Building Binary Inside the Container
+## Packaging & Validating Your Submission
 
-To guarantee the binary's GLIBC/Python match the judge, package it **inside this
-container** with PyInstaller:
+Two host-side scripts (no Docker required) help you satisfy the packaging
+checklist before you build a full evaluation run:
+
+```bash
+# Check an unpacked directory or an already-built archive against the
+# guidelines' structure/naming rules (Sections 1, 2, 4, 6):
+python3 scripts/validate_submission.py submission/
+python3 scripts/validate_submission.py cadc0042.tar.gz
+
+# Package submission/ into cadc<team_id>.tar.gz and validate it in one step:
+bash scripts/make_submission_archive.sh 0042 submission/ out/
+```
+
+The validator flags: missing/nested `op_wrapper.py` or `requirements.txt`,
+extra top-level `.py` files, likely absolute-path literals in your code,
+scratch/log/result-JSON clutter, and archive/directory naming that doesn't
+match `cadc<team_id>`. It does **not** run the evaluator — pair it with a full
+Docker run before submitting.
+
+---
+
+## Pre-submission Checklist
+
+From the Beta Submission Guidelines:
+
+- [ ] Archive named `cadc<team_id>.tar.gz`
+- [ ] `cadc<team_id>/` is flat — `op_wrapper.py`, `requirements.txt` at top level
+- [ ] `requirements.txt` present (empty if no custom deps, complete if custom)
+- [ ] No absolute paths in code
+- [ ] Tested locally: `python iccad2026_evaluate.py --evaluate op_wrapper.py`
+- [ ] `op_wrapper.py` runs all 100 validation cases without crashing
+
+`scripts/validate_submission.py` checks the structural items automatically;
+run a full Docker evaluation (see [Usage](#usage)) for the last two.
+
+---
+
+## Advanced: Wrapping a Compiled Binary
+
+The guidelines only require `op_wrapper.py` to be a plain `.py` file that
+subclasses `FloorplanOptimizer` — what it does internally is up to you. If
+your real solver is a native/PyInstaller binary, `op_wrapper.py` can
+subprocess-launch it; the binary just becomes one of the "any other files"
+allowed alongside it. See
+[`examples/advanced_binary_wrapper/`](examples/advanced_binary_wrapper/) for
+a full example, and strongly consider shipping a pure-Python `op_src.py` as a
+genuine fallback in case the binary fails to load on the judge.
+
+To guarantee the binary's GLIBC/Python match the judge, package it **inside
+this container** with PyInstaller:
 
 ```bash
 docker run --rm -v "$PWD:/work" -w /work \
@@ -233,7 +330,16 @@ docker run --rm -v "$PWD:/work" -w /work \
             mkdir -p submission && cp dist/my_optimizer submission/"
 ```
 
-Then evaluate it using the [Usage](#usage) commands above.
+Or run the bundled demo end-to-end:
+
+```bash
+docker run --rm -v "$PWD:/work" -w /work \
+  ghcr.io/conashin/cadcontest26c_docker:cpu \
+  bash examples/build_example.sh
+
+docker run --rm -v "$PWD/submission:/submission:ro" \
+  ghcr.io/conashin/cadcontest26c_docker:cpu
+```
 
 ---
 

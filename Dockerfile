@@ -1,24 +1,27 @@
 # =============================================================================
 # ICCAD 2026 CAD Contest - Problem C (The FloorSet Challenge)
-# Local evaluation environment that mirrors the official judging machine.
+# Local evaluation environment aligned with the Beta Submission Guidelines:
+# each submission is a plain-Python cadc<team_id>/ package (op_wrapper.py
+# REQUIRED, op_src.py optional, requirements.txt REQUIRED) evaluated on a
+# dedicated machine with 48 CPU cores + an NVIDIA A100 80GB GPU.
 #
 # Official system spec (from "C_Submission_Guidelines"):
 #   OS    : Debian GNU/Linux 13 (trixie)   -> base image below
 #   Python: 3.13.x                          -> Debian 13 default interpreter
 #   GCC/G++: 14.x                           -> Debian 13 default toolchain
-#   GLIBC : 2.41                            -> Debian 13 (critical for PyInstaller)
+#   GLIBC : 2.41                            -> Debian 13
 #
-# The official judge runs on an A100 + CUDA. This image is built in two variants
-# selected via the TORCH_INDEX_URL build-arg:
+# The official judge runs on an A100 + CUDA. This image is built in two
+# variants selected via the TORCH_INDEX_URL build-arg:
 #   cpu  -> https://download.pytorch.org/whl/cpu     (small, runs anywhere)
 #   gpu  -> https://download.pytorch.org/whl/cu124   (CUDA wheels, run --gpus all)
-# Either way GLIBC / Python / toolchain - the things that actually decide whether
-# your PyInstaller binary loads on the judge - are matched exactly.
+# Either way, Python / toolchain / preinstalled packages are matched exactly,
+# so op_wrapper.py behaves the same locally as on the judge.
 # =============================================================================
 FROM debian:trixie-slim
 
 LABEL org.opencontainers.image.title="ICCAD 2026 Problem C - FloorSet local test env" \
-      org.opencontainers.image.description="Debian 13 / Python 3.13 / GLIBC 2.41 environment to build & evaluate my_optimizer submissions for the FloorSet Challenge." \
+      org.opencontainers.image.description="Debian 13 / Python 3.13 / GLIBC 2.41 environment to evaluate cadc<team_id> op_wrapper.py submissions for the FloorSet Challenge." \
       org.opencontainers.image.source="https://github.com/conashin/cadcontest26c_docker"
 
 ENV DEBIAN_FRONTEND=noninteractive \
@@ -57,13 +60,17 @@ RUN python3 -m venv "$VIRTUAL_ENV" \
 ARG TORCH_INDEX_URL=https://download.pytorch.org/whl/cpu
 RUN pip install --index-url "${TORCH_INDEX_URL}" torch
 
-# Contest's own requirements (numpy/shapely/matplotlib/tqdm/requests + torch).
+# Base packages the Beta Submission Guidelines (Section 2, Case A) say are
+# always available in the evaluation environment: numpy, torch, scipy, numba,
+# tqdm, shapely, threadpoolctl, plus the contest's own requirements.txt.
 # torch is already satisfied above, so it won't be re-pulled from PyPI.
 COPY requirements.txt /tmp/requirements.txt
 RUN pip install -r /tmp/requirements.txt
 
-# PyInstaller so participants can build my_optimizer *inside* this image,
-# guaranteeing GLIBC/Python compatibility with the judge.
+# PyInstaller: optional, for the ADVANCED pattern where op_wrapper.py
+# subprocess-launches a compiled binary (see examples/advanced_binary_wrapper/).
+# Not required by the Beta Submission Guidelines, which only ask for plain
+# .py files - most submissions won't need this.
 RUN pip install pyinstaller
 
 # --- Fetch the official contest harness ---------------------------------------
@@ -75,10 +82,12 @@ RUN git clone "${FLOORSET_REPO}" /opt/FloorSet \
     && git -C /opt/FloorSet checkout "${FLOORSET_REF}" \
     && rm -rf /opt/FloorSet/.git
 
-# Ship the official executable wrapper inside the contest folder so the exact
-# judging command works out of the box:
+# Ship the reference op_wrapper.py / op_src.py templates inside the contest
+# folder so the exact judging command works out of the box:
 #   python iccad2026_evaluate.py --evaluate op_wrapper.py
-COPY op_wrapper.py /opt/FloorSet/iccad2026contest/op_wrapper.py
+# A mounted submission (see scripts/entrypoint.sh) overwrites these with the
+# participant's own cadc<team_id>/ package.
+COPY op_wrapper.py op_src.py /opt/FloorSet/iccad2026contest/
 
 # --- (Optional) Pre-bake the 100-case validation dataset ----------------------
 # The harness auto-downloads LiteTensorDataTest from HuggingFace on first run.
@@ -93,18 +102,13 @@ RUN if [ "$BAKE_DATASET" = "1" ]; then \
         || echo '[warn] dataset prefetch skipped (no internet at build) - will auto-download at runtime'; \
     fi
 
-# --- Evaluation mode ----------------------------------------------------------
-# Selects how the entrypoint evaluates a submission (see scripts/entrypoint.sh):
-#   binary   -> executable submission, evaluated via op_wrapper.py (default)
-#   fallback -> source-code submission, evaluated directly with the participant's
-#               Python module (the guidelines' "you may also submit your source
-#               code" fallback path). Used by the :fallback-cpu / :fallback-gpu
-#               image tags.
-ARG EVAL_MODE=binary
-ENV EVAL_MODE=${EVAL_MODE}
-
+# --- Entrypoint -----------------------------------------------------------
+# Stages the mounted submission, validates cadc<team_id>/ structure, handles
+# requirements.txt Case A/B, and evaluates op_wrapper.py with an automatic
+# op_src.py fallback - see scripts/entrypoint.sh for the guideline mapping.
 COPY scripts/entrypoint.sh /usr/local/bin/entrypoint.sh
-RUN chmod +x /usr/local/bin/entrypoint.sh
+COPY scripts/validate_submission.py /usr/local/bin/validate_submission.py
+RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/validate_submission.py
 
 WORKDIR /opt/FloorSet/iccad2026contest
 

@@ -1,65 +1,100 @@
-# op wrapper
-import json
-import os
-import subprocess
-from pathlib import Path
+# op_wrapper.py - REQUIRED entry point (Beta Submission Guidelines, Section 1/3/5).
+#
+# The evaluator runs:  python iccad2026_evaluate.py --evaluate op_wrapper.py
+# from directly inside cadc<team_id>/. This file must define a class that
+# subclasses FloorplanOptimizer and implements solve() - no other contract is
+# required (no stdin/stdout protocol, no subprocess, no compiled binary).
+#
+# This is the reference *template* shipped with the local test environment so
+# the image runs end-to-end out of the box. Replace MyOptimizer.solve() below
+# with your real optimizer, or overwrite this whole file by mounting your own
+# cadc<team_id>/ package at /submission (see submission/README.md).
+#
+# Need a compiled/native helper instead of pure Python? See
+# examples/advanced_binary_wrapper/ for a pattern where op_wrapper.py
+# subprocess-launches a binary - that's still a plain .py file satisfying this
+# same contract.
+import math
+from typing import List, Optional, Tuple
+
 from iccad2026_evaluate import FloorplanOptimizer
 
+
+def _scalar(value) -> float:
+    """area_targets entries may be nested (e.g. [[a]]) - unwrap to float."""
+    while isinstance(value, (list, tuple)):
+        if not value:
+            return 0.0
+        value = value[0]
+    return float(value)
+
+
 class MyOptimizer(FloorplanOptimizer):
-    def __init__(self, verbose=True):
-        super().__init__(verbose=verbose)
-        # Resolve executable from submission-relative locations.
-        # Optional override: export MY_OPT_BIN=relative/or/absolute/path
-        base_dir = Path(__file__).resolve().parent
+    """Trivial shelf-packing baseline - NOT constraint-correct, for pipeline
+    sanity-checking only. Replace solve() with your real solver, keeping the
+    same signature and return schema."""
 
-        env_bin = os.environ.get("MY_OPT_BIN")
-        candidates = []
-        if env_bin:
-            p = Path(env_bin)
-            candidates.append(p if p.is_absolute() else (base_dir / p))
+    def solve(
+        self,
+        block_count,
+        area_targets,
+        b2b_connectivity,
+        p2b_connectivity,
+        pins_pos,
+        constraints,
+        target_positions=None,
+    ) -> List[Tuple[float, float, float, float]]:
+        n = int(block_count)
 
-        candidates.extend([
-            base_dir / "dist" / "my_optimizer" / "my_optimizer",  # PyInstaller --onedir
-            base_dir / "my_optimizer",                               # PyInstaller --onefile
-            base_dir / "bin" / "my_optimizer",                     # optional layout
-        ])
+        # Inputs arrive as torch tensors; convert to plain Python lists so
+        # this demo has no dependency on tensor semantics.
+        areas_raw = area_targets.tolist() if hasattr(area_targets, "tolist") else list(area_targets)
+        tpos = None
+        if target_positions is not None:
+            tpos = target_positions.tolist() if hasattr(target_positions, "tolist") else list(target_positions)
 
-        self.bin_path = next((p for p in candidates if p.exists()), candidates[0])
+        areas = [_scalar(areas_raw[i]) if i < len(areas_raw) else 1.0 for i in range(n)]
+        total_area = sum(a for a in areas if a > 0) or float(n)
+        row_width = math.sqrt(total_area) * 1.2  # rough square-ish die aspect
 
-        if not self.bin_path.exists():
-            raise FileNotFoundError(f"Optimizer executable not found: {self.bin_path}")
-        if not os.access(self.bin_path, os.X_OK):
-            raise PermissionError(f"Optimizer is not executable: {self.bin_path}")
+        positions: List[Tuple[float, float, float, float]] = []
+        shelf_x = 0.0
+        shelf_y = 0.0
+        shelf_h = 0.0
 
-    def solve(self, block_count, area_targets, b2b_connectivity, p2b_connectivity,
-              pins_pos, constraints, target_positions=None):
-        payload = {
-            "block_count": int(block_count),
-            "area_targets": area_targets.tolist(),
-            "b2b_connectivity": b2b_connectivity.tolist(),
-            "p2b_connectivity": p2b_connectivity.tolist(),
-            "pins_pos": pins_pos.tolist(),
-            "constraints": constraints.tolist(),
-            "target_positions": target_positions.tolist() if target_positions is not None else None,
-        }
+        for i in range(n):
+            w = h = None
 
-        proc = subprocess.run(
-            [str(self.bin_path)],
-            input=json.dumps(payload),
-            text=True,
-            capture_output=True,
-            timeout=60,
-            check=True,
-        )
+            if tpos is not None and i < len(tpos):
+                t = list(tpos[i]) + [-1.0, -1.0, -1.0, -1.0]
+                tx, ty, tw, th = t[0], t[1], t[2], t[3]
+                if tw is not None and tw >= 0:
+                    w = float(tw)
+                if th is not None and th >= 0:
+                    h = float(th)
+                # Preplaced block: x, y, w, h all set -> keep exactly fixed.
+                if (tx is not None and tx >= 0 and ty is not None and ty >= 0
+                        and w is not None and h is not None):
+                    positions.append((float(tx), float(ty), w, h))
+                    continue
 
-        if not proc.stdout.strip():
-            raise RuntimeError(
-                f"Optimizer produced empty stdout. stderr: {proc.stderr.strip()}"
-            )
+            # Derive any missing dimensions from the area target.
+            a = areas[i] if areas[i] > 0 else 1.0
+            if w is None and h is None:
+                w = h = math.sqrt(a)
+            elif w is None:
+                w = a / h if h else 1.0
+            elif h is None:
+                h = a / w if w else 1.0
 
-        data = json.loads(proc.stdout)   # expects {"positions": [[x,y,w,h], ...]}
-        if "positions" not in data:
-            raise ValueError(
-                f"Optimizer JSON must contain 'positions'. Got keys: {list(data.keys())}"
-            )
-        return [tuple(map(float, p)) for p in data["positions"]]
+            # Shelf placement: wrap to a new row when the current one is full.
+            if shelf_x > 0 and shelf_x + w > row_width:
+                shelf_y += shelf_h
+                shelf_x = 0.0
+                shelf_h = 0.0
+
+            positions.append((shelf_x, shelf_y, w, h))
+            shelf_x += w
+            shelf_h = max(shelf_h, h)
+
+        return positions
