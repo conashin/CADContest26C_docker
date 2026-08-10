@@ -1,23 +1,15 @@
-#!/usr/bin/env python3
-"""
-Reference *demo* source-code submission for the FloorSet Challenge "fallback".
-
-The Submission Guidelines allow submitting source code instead of a PyInstaller
-executable ("As a fallback, you may also submit your source code."). In that
-case the official harness evaluates the source module directly:
-
-    python iccad2026_evaluate.py --evaluate my_optimizer.py
-
-The harness imports the module and instantiates the first class that subclasses
-FloorplanOptimizer (or one named MyOptimizer / Optimizer / ContestOptimizer),
-then calls solve(). Unlike the executable path there is NO op_wrapper.py and NO
-subprocess: solve() runs in-process and receives torch tensors directly.
-
-This is intentionally a trivial shelf-packing baseline whose only purpose is to
-exercise the source-code (fallback) evaluation path end-to-end. It is NOT
-constraint-correct and will not score well. Replace solve() with your real
-solver, keeping the same signature and return schema.
-"""
+# op_src.py - OPTIONAL but strongly recommended (Beta Submission Guidelines,
+# Section 1/3). Full, self-contained source code used if op_wrapper.py fails
+# or cannot run standalone: "The evaluator tries op_wrapper.py first. If that
+# fails, it falls back to op_src.py."
+#
+# Keep this file independent of anything op_wrapper.py might rely on (a
+# compiled binary, GPU-only code path, an optional dependency, ...), so it
+# has the best chance of running when op_wrapper.py cannot. In this template
+# op_wrapper.py is already pure Python with no external dependency beyond
+# requirements.txt, so op_src.py mirrors it exactly. If you adopt the
+# subprocess/binary pattern from examples/advanced_binary_wrapper/, this file
+# is where a genuine no-binary fallback belongs.
 import math
 from typing import List, Optional, Tuple
 
@@ -34,7 +26,8 @@ def _scalar(value) -> float:
 
 
 class MyOptimizer(FloorplanOptimizer):
-    """Shelf-packing baseline implemented directly in Python (no binary)."""
+    """Trivial shelf-packing baseline - NOT constraint-correct, for pipeline
+    sanity-checking only. Replace solve() with your real solver."""
 
     def solve(
         self,
@@ -48,8 +41,6 @@ class MyOptimizer(FloorplanOptimizer):
     ) -> List[Tuple[float, float, float, float]]:
         n = int(block_count)
 
-        # Inputs arrive as torch tensors; convert to plain Python lists so this
-        # demo has no dependency on tensor semantics.
         areas_raw = area_targets.tolist() if hasattr(area_targets, "tolist") else list(area_targets)
         tpos = None
         if target_positions is not None:
@@ -57,7 +48,7 @@ class MyOptimizer(FloorplanOptimizer):
 
         areas = [_scalar(areas_raw[i]) if i < len(areas_raw) else 1.0 for i in range(n)]
         total_area = sum(a for a in areas if a > 0) or float(n)
-        row_width = math.sqrt(total_area) * 1.2  # rough square-ish die aspect
+        row_width = math.sqrt(total_area) * 1.2
 
         positions: List[Tuple[float, float, float, float]] = []
         shelf_x = 0.0
@@ -74,13 +65,11 @@ class MyOptimizer(FloorplanOptimizer):
                     w = float(tw)
                 if th is not None and th >= 0:
                     h = float(th)
-                # Preplaced block: x, y, w, h all set -> keep exactly fixed.
                 if (tx is not None and tx >= 0 and ty is not None and ty >= 0
                         and w is not None and h is not None):
                     positions.append((float(tx), float(ty), w, h))
                     continue
 
-            # Derive any missing dimensions from the area target.
             a = areas[i] if areas[i] > 0 else 1.0
             if w is None and h is None:
                 w = h = math.sqrt(a)
@@ -89,7 +78,6 @@ class MyOptimizer(FloorplanOptimizer):
             elif h is None:
                 h = a / w if w else 1.0
 
-            # Shelf placement: wrap to a new row when the current one is full.
             if shelf_x > 0 and shelf_x + w > row_width:
                 shelf_y += shelf_h
                 shelf_x = 0.0
