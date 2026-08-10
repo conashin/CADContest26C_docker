@@ -1,6 +1,8 @@
 name: build-and-push
 
-# Builds the FloorSet local-test image in two variants and pushes both to GHCR:
+# Builds the FloorSet local-test image in two variants, pushes both to GHCR,
+# then smoke-tests each pushed image by pulling it back and evaluating one
+# case with the shipped demo op_wrapper.py:
 #   ghcr.io/<owner>/cadcontest26c_docker:cpu      (also tagged :latest)
 #   ghcr.io/<owner>/cadcontest26c_docker:gpu      (CUDA wheels, run with --gpus all)
 on:
@@ -106,6 +108,14 @@ jobs:
           cache-from: type=gha,scope=${{ matrix.variant }}
           cache-to: type=gha,mode=max,scope=${{ matrix.variant }}
           provenance: false
+
+      - name: Smoke test (pull pushed image, evaluate one case with the shipped demo)
+        run: |
+          IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ matrix.variant }}"
+          docker pull "$IMAGE"
+          mkdir -p /tmp/smoke_submission
+          cp op_wrapper.py op_src.py requirements.txt /tmp/smoke_submission/
+          docker run --rm -v /tmp/smoke_submission:/submission:ro "$IMAGE" --test-id 0
 
       - name: Summary
         run: |
