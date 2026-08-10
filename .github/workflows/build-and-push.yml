@@ -111,7 +111,10 @@ jobs:
 
       - name: Smoke test (pull pushed image, evaluate one case with the shipped demo)
         run: |
-          IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ matrix.variant }}"
+          # github.repository/IMAGE_NAME may contain uppercase letters (e.g. this
+          # repo's own name); docker/metadata-action lowercases its output tags
+          # automatically, so match that here rather than reusing IMAGE_NAME raw.
+          IMAGE=$(echo "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ matrix.variant }}" | tr '[:upper:]' '[:lower:]')
           docker pull "$IMAGE"
           mkdir -p /tmp/smoke_submission
           cp op_wrapper.py op_src.py requirements.txt /tmp/smoke_submission/
