@@ -13,7 +13,11 @@
 #              requirements.txt (REQUIRED, may be empty) must sit directly
 #              inside the package. A missing or nested file fails fast with
 #              the guideline section that was violated, instead of silently
-#              being skipped.
+#              being skipped. This image ships a bundled demo op_wrapper.py/
+#              op_src.py so it runs out of the box with nothing mounted, but a
+#              mounted submission that forgets its own op_wrapper.py is still
+#              treated as an error - it will not silently fall through to
+#              evaluating the bundled demo instead.
 #   Section 2  requirements.txt Case A (empty -> base environment) vs Case B
 #              (non-empty -> fresh `.venv_eval`, installed from ONLY this
 #              file) - exactly the commands the guideline says the official
@@ -48,24 +52,43 @@ if [ -d "$SUBMISSION_DIR" ] && [ ! -f "$SUBMISSION_DIR/op_wrapper.py" ]; then
   fi
 fi
 
+SUBMISSION_MOUNTED=0
 if [ -d "$STAGE_SRC" ] && [ -n "$(ls -A "$STAGE_SRC" 2>/dev/null || true)" ]; then
+  SUBMISSION_MOUNTED=1
   echo "[entrypoint] Staging submission: $STAGE_SRC -> $CONTEST_DIR"
   cp -a "$STAGE_SRC/." "$CONTEST_DIR/"
+else
+  echo "[entrypoint] No submission mounted at $SUBMISSION_DIR - running the image's bundled demo op_wrapper.py/op_src.py."
 fi
 
 cd "$CONTEST_DIR"
 
 # --- Structure checks (Guideline Section 1 / 3 / 4) ----------------------------
-if [ ! -f op_wrapper.py ]; then
+# Validate against the participant's own files (STAGE_SRC), not the
+# post-staging contest dir: `cp -a` only overlays matching filenames, so a
+# submission that forgets op_wrapper.py/op_src.py would otherwise still find
+# the image's bundled demo copy sitting there and silently evaluate our
+# baseline instead of failing, per Section 3 ("submissions with neither will
+# be skipped"). When nothing is mounted at all, fall back to the contest dir
+# (i.e. the bundled demo) so the image still runs out of the box.
+if [ "$SUBMISSION_MOUNTED" -eq 1 ]; then
+  CHECK_DIR="$STAGE_SRC"
+else
+  CHECK_DIR="$CONTEST_DIR"
+fi
+
+if [ ! -f "$CHECK_DIR/op_wrapper.py" ]; then
   echo "[entrypoint] ERROR: op_wrapper.py not found directly inside the submission." >&2
   echo "[entrypoint] Guideline Section 1/4(c): it must sit at the top level, not in a subdirectory." >&2
   exit 1
 fi
-if [ ! -f requirements.txt ]; then
+if [ ! -f "$CHECK_DIR/requirements.txt" ]; then
   echo "[entrypoint] ERROR: requirements.txt not found." >&2
   echo "[entrypoint] Guideline Section 1/2/4(d): it is REQUIRED, even if empty." >&2
   exit 1
 fi
+HAS_OP_SRC=0
+[ -f "$CHECK_DIR/op_src.py" ] && HAS_OP_SRC=1
 
 # Best-effort: make well-known compiled-binary layouts executable, for the
 # advanced pattern where op_wrapper.py subprocess-launches a helper binary
@@ -109,7 +132,7 @@ if [ "$status" -eq 0 ]; then
 fi
 echo "[entrypoint] op_wrapper.py run failed (exit $status)." >&2
 
-if [ -f op_src.py ]; then
+if [ "$HAS_OP_SRC" -eq 1 ]; then
   echo "[entrypoint] Falling back to op_src.py, per Guideline Section 3." >&2
   run_eval op_src.py "$@"
 else

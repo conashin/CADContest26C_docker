@@ -232,6 +232,12 @@ The container stages everything mounted at `/submission` next to the
 evaluation harness, validates the required files are present at the top
 level, resolves `requirements.txt` Case A/B, then evaluates.
 
+> The image ships a bundled demo `op_wrapper.py`/`op_src.py` so it runs out of
+> the box with nothing mounted. If you *do* mount a submission, it is
+> validated against your own files specifically — forgetting `op_wrapper.py`
+> in your submission fails with an error rather than silently falling back to
+> evaluating the bundled demo.
+
 **Full evaluation (100 validation cases):**
 
 ```bash
