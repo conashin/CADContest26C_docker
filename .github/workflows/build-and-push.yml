@@ -54,7 +54,7 @@ jobs:
             torch_index: https://download.pytorch.org/whl/cpu
             is_default: true
           - variant: gpu
-            torch_index: https://download.pytorch.org/whl/cu124
+            torch_index: https://download.pytorch.org/whl/cu130
             is_default: false
     steps:
       - name: Checkout

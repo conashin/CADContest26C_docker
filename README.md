@@ -90,15 +90,24 @@ exclusively to that submission.
 | ----------- | ------------------------------------------------------ | ------------------------------------------------- |
 | OS          | Debian GNU/Linux 13                                    | `debian:trixie-slim` (Debian 13) ✅                |
 | Python      | 3.13.x                                                 | Debian 13 system Python 3.13 ✅                    |
+| PyTorch / CUDA | `torch==2.12.0+cu130`, driver 580.82.07, CUDA 13.0 (see note) | `:gpu` variant installs from `whl/cu130` ✅ |
 | GCC / G++   | 14.2.0                                                 | `build-essential` (GCC/G++ 14) ✅                  |
 | GLIBC (ldd) | 2.41                                                   | Debian 13 → 2.41 ✅                                |
 | CPU / GPU   | 48 cores, NVIDIA A100 80GB (dedicated)                 | Your machine's cores; `:gpu` variant + any CUDA GPU |
 | Preinstalled Python deps (Case A) | numpy, torch, scipy, numba, tqdm, shapely, threadpoolctl, + contest `requirements.txt` | Installed from this repo's `requirements.txt` ✅ |
 
+> **CUDA version note (Q&A A22):** the guidelines PDF lists "CUDA 12.5" for
+> the judge, but the organizers confirmed that's a typo in the document
+> itself -- the judge actually runs driver **580.82.07 / CUDA 13.0**, and
+> `torch==2.12.0+cu130` (this image's `:gpu` variant) is the correct,
+> compatible build. Don't "fix" the `:gpu` variant back to an older CUDA
+> wheel index to match the PDF's table -- `cu130` is right.
+>
 > The official machine uses an NVIDIA A100 with CUDA and 48 dedicated CPU
-> cores. Absolute runtime numbers will differ from your local machine; use
-> this image to validate **correctness and packaging**, not to benchmark
-> final runtime/score.
+> cores. Absolute runtime numbers will differ from your local machine (CPU
+> core count/throughput dominates this workload's wall-clock time far more
+> than GPU availability does); use this image to validate **correctness and
+> packaging**, not to benchmark final runtime/score.
 
 ---
 
@@ -171,7 +180,7 @@ Two variants are published, sharing the same Debian 13 / Python 3.13 / GLIBC
 | Tag                  | PyTorch wheel | Intended use                                                 | Size    |
 | -------------------- | ------------- | ------------------------------------------------------------ | ------- |
 | `:cpu` (= `:latest`) | `whl/cpu`     | Any machine, no NVIDIA driver required. Verifies packaging, output validity, and full scoring. | ~1.5 GB |
-| `:gpu`               | `whl/cu124`   | Machines with an NVIDIA GPU; aligns with the A100/CUDA judge and measures GPU runtime. Requires `--gpus all`. | ~6–7 GB |
+| `:gpu`               | `whl/cu130`   | Machines with an NVIDIA GPU; aligns with the A100/CUDA judge and measures GPU runtime. Requires `--gpus all`. | ~6–7 GB |
 
 Published image names:
 

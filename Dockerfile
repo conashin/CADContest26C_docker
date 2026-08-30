@@ -5,16 +5,20 @@
 # REQUIRED, op_src.py optional, requirements.txt REQUIRED) evaluated on a
 # dedicated machine with 48 CPU cores + an NVIDIA A100 80GB GPU.
 #
-# Official system spec (from "C_Submission_Guidelines"):
+# Official system spec (from "C_Submission_Guidelines", corrected per Q&A A22:
+# the guidelines PDF's "CUDA 12.5" is a typo -- the judge actually runs driver
+# 580.82.07 / CUDA 13.0, and torch==2.12.0+cu130 is the correct, compatible
+# build):
 #   OS    : Debian GNU/Linux 13 (trixie)   -> base image below
 #   Python: 3.13.x                          -> Debian 13 default interpreter
+#   PyTorch: 2.12.0+cu130                   -> driver 580.82.07 / CUDA 13.0
 #   GCC/G++: 14.x                           -> Debian 13 default toolchain
 #   GLIBC : 2.41                            -> Debian 13
 #
-# The official judge runs on an A100 + CUDA. This image is built in two
+# The official judge runs on an A100 + CUDA 13.0. This image is built in two
 # variants selected via the TORCH_INDEX_URL build-arg:
 #   cpu  -> https://download.pytorch.org/whl/cpu     (small, runs anywhere)
-#   gpu  -> https://download.pytorch.org/whl/cu124   (CUDA wheels, run --gpus all)
+#   gpu  -> https://download.pytorch.org/whl/cu130   (CUDA wheels, run --gpus all)
 # Either way, Python / toolchain / preinstalled packages are matched exactly,
 # so op_wrapper.py behaves the same locally as on the judge.
 # =============================================================================
@@ -55,7 +59,7 @@ RUN python3 -m venv "$VIRTUAL_ENV" \
 # --- PyTorch + contest dependencies + PyInstaller -----------------------------
 # torch is pulled from a PyTorch wheel index chosen by TORCH_INDEX_URL:
 #   cpu variant -> .../whl/cpu     (default; small, no NVIDIA driver required)
-#   gpu variant -> .../whl/cu124   (CUDA-enabled; run the container with --gpus all)
+#   gpu variant -> .../whl/cu130   (CUDA-enabled; run the container with --gpus all)
 # Either wheel satisfies the contest requirements.txt constraint torch>=2.0.0.
 ARG TORCH_INDEX_URL=https://download.pytorch.org/whl/cpu
 RUN pip install --index-url "${TORCH_INDEX_URL}" torch
